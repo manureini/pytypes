@@ -672,6 +672,11 @@ def _checkinstance(obj, cls, bound_Generic, bound_typevars, bound_typevars_reado
                     return True, obj
             else:
                 return False, obj
+    if isinstance(cls, types.FunctionType):
+        predRes = cls(obj)
+        if not type(predRes) == bool:
+            raise pytypes.TypeCheckError('Predicate function did not return a value of bool. Returned value of type: ' + str(type(predRes)))
+        return predRes, obj
     return _isinstance(obj, cls, bound_Generic, bound_typevars,
             bound_typevars_readonly, follow_fwd_refs, _recursion_check), obj
 
