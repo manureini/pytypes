@@ -25,7 +25,7 @@ import sys
 import types
 import typing
 import collections
-from inspect import isclass, ismodule, isfunction, ismethod, ismethoddescriptor
+from inspect import isclass, ismodule, isfunction, ismethod, ismethoddescriptor, getfile
 from warnings import warn
 
 import pytypes
@@ -546,7 +546,7 @@ def override(func, auto = False):
         return func
 
 def _make_type_error_message(tp, func, slf, func_class, expected_tp, \
-            incomp_text, prop_getter = False, bound_typevars=None):
+            incomp_text, prop_getter, bound_typevars, checked_val):
     _cmp_msg_format = 'Expected: %s\nReceived: %s'
     if type(func) is property:
         assert slf is True
@@ -560,9 +560,22 @@ def _make_type_error_message(tp, func, slf, func_class, expected_tp, \
     # Todo: Clarify if an @override-induced check caused this
     # Todo: Python3 misconcepts method as classmethod here, because it doesn't
     # detect it as bound method, because ov_checker or tp_checker obfuscate it
-    return '\n  '+fq_func_name+'\n  '+incomp_text+':\n'+_cmp_msg_format % ( \
-            type_str(expected_tp, bound_Generic=func_class, bound_typevars=bound_typevars),
-            type_str(tp, bound_Generic=func_class, bound_typevars=bound_typevars))
+    filename = getfile(func)
+    argIndex = len(checked_val)
+    expectedType = expected_tp.__args__[argIndex - 1]
+    contract = ""
+    if isinstance(expectedType, types.FunctionType):
+        contract = "\ncontract from: " + getfile(expectedType)
+    return fq_func_name + ':' + \
+        '\ngiven: ' + str(checked_val[-1]) + " of type " + type_str(type(checked_val[-1]), bound_Generic=func_class, bound_typevars=bound_typevars) + \
+        '\nbut expected: ' + type_str(expectedType, bound_Generic=func_class, bound_typevars=bound_typevars) + \
+        ' for argument ' + str(argIndex) + \
+        '\nmethod from file: ' + filename + \
+        contract
+        #'\n  ' + incomp_text + \
+        #':\n' + _cmp_msg_format % ( \
+        #    type_str(expected_tp, bound_Generic=func_class, bound_typevars=bound_typevars),
+        #    type_str(tp, bound_Generic=func_class, bound_typevars=bound_typevars))
 
 
 def _checkinstance(obj, cls, bound_Generic, bound_typevars, bound_typevars_readonly,
@@ -581,10 +594,9 @@ def _checkinstance(obj, cls, bound_Generic, bound_typevars, bound_typevars_reado
                 res, obj2 = _checkinstance(obj[i], prms[0 if elps else i], bound_Generic, bound_typevars,
                         bound_typevars_readonly, follow_fwd_refs, _recursion_check,
                         is_args, func)
+                lst.append(obj2)
                 if not res:
-                    return False, obj
-                else:
-                    lst.append(obj2)
+                    return False, tuple(lst)
             return True, tuple(lst)
         else:
             return False, obj
@@ -700,7 +712,7 @@ def _checkfunctype(argSig, check_val, func, slf, func_class, make_checked_val=Fa
     if not result:
         tpch = deep_type(check_val)
         msg = _make_type_error_message(tpch, func, slf, func_class, argSig,
-                'called with incompatible types', prop_getter, bound_typevars)
+                'called with incompatible types', prop_getter, bound_typevars, checked_val)
         _raise_typecheck_error(msg, False, check_val, tpch, argSig, func)
         if force_exception:
             raise InputTypeError(msg)
@@ -724,7 +736,7 @@ def _checkfuncresult(resSig, check_val, func, slf, func_class, \
         # todo: constrain deep_type-depth
         tpch = deep_type(check_val)
         msg = _make_type_error_message(tpch, func, slf, func_class, resSig,
-                'returned incompatible type', prop_getter, bound_typevars)
+                'returned incompatible type', prop_getter, bound_typevars, checked_val)
         _raise_typecheck_error(msg, True, check_val, tpch, resSig, func)
         if force_exception:
             raise ReturnTypeError(msg)
